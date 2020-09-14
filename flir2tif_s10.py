@@ -182,7 +182,7 @@ def main():
     if bin_file is not None:
         with open(args.metadata, 'r') as mdf:
 
-            full_md = json.load(mdf)['content']
+            full_md = json.load(mdf)
             extractor_info = None
 
             if full_md:
