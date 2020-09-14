@@ -39,6 +39,12 @@ def get_args():
                         type=str,
                         required=True)
                         #default='cleanmetadata_out')
+    parser.add_argument('-z',
+                        '--zoffset',
+                        help='Z-axis offset',
+                        metavar='z-offset',
+                        type=int,
+                        default=0.76)
 
     parser.add_argument('-o',
                         '--outdir',
@@ -53,6 +59,52 @@ def get_args():
         args.outdir = args.outdir + '/'
 
     return args
+
+
+
+# --------------------------------------------------
+def get_boundingbox(metadata, z_offset):
+
+    with open(metadata) as f:
+        meta = json.load(f)['lemnatec_measurement_metadata']
+
+    loc_gantry_x = float(meta['sensor_fixed_metadata']['location in camera box x [m]'])
+    loc_gantry_y = float(meta['sensor_fixed_metadata']['location in camera box y [m]'])
+    loc_gantry_z = float(meta['sensor_fixed_metadata']['location in camera box z [m]'])
+
+    gantry_x = float(meta['gantry_system_variable_metadata']['position x [m]']) + loc_gantry_x
+    gantry_y = float(meta['gantry_system_variable_metadata']['position y [m]']) + loc_gantry_y
+    gantry_z = float(meta['gantry_system_variable_metadata']['position z [m]']) + z_offset + loc_gantry_z#offset in m
+
+    fov_x, fov_y = float(meta['sensor_fixed_metadata']['field of view x [m]']), float(meta['sensor_fixed_metadata']['field of view y [m]'])
+    
+    img_height, image_width = 640, 480
+    
+    B = gantry_z
+    A_x = np.arctan((0.5*float(fov_x))/2)
+    A_y = np.arctan((0.5*float(fov_y))/2)
+    L_x = 2*B*np.tan(A_x)
+    L_y = 2*B*np.tan(A_y)
+
+    x_n = gantry_x + (L_x/2)
+    x_s = gantry_x - (L_x/2)
+    y_w = gantry_y + (L_y/2)
+    y_e = gantry_y - (L_y/2)
+
+    bbox_nw_latlon = scanalyzer_to_latlon(x_n, y_w)
+    bbox_se_latlon = scanalyzer_to_latlon(x_s, y_e)
+
+    # TERRA-REF
+    #lon_shift = 0.000020308287
+
+    # Drone
+    #lat_shift = 0.000018292 #0.000015258894
+    b_box =  ( bbox_se_latlon[0], #- lat_shift,
+                bbox_nw_latlon[0], #- lat_shift,
+                bbox_nw_latlon[1], #+ lon_shift,
+                bbox_se_latlon[1]) #+ lon_shift )
+
+    return b_box, img_height, img_width
 
 
 # --------------------------------------------------
@@ -137,8 +189,10 @@ def main():
                 if bin_file is not None:
                     out_file = os.path.join(args.outdir, bin_file.split('/')[-1].replace(".bin", ".tif"))
 
-                    gps_bounds_bin = geojson_to_tuples(
-                        full_md['spatial_metadata']['flirIrCamera']['bounding_box'])
+                    #gps_bounds_bin = geojson_to_tuples(
+                        #full_md['spatial_metadata']['flirIrCamera']['bounding_box'])
+                    gps_bounds_bin, img_height, img_width = get_boundingbox(args.metadata, args.zoffset)
+                    
                     raw_data = np.fromfile(bin_file, np.dtype('<u2')).reshape(
                         [480, 640]).astype('float')
                     raw_data = np.rot90(raw_data, 3)
